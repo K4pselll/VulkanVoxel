@@ -1,5 +1,5 @@
 !define PRODUCT_NAME "VulkanVoxel"
-!define PRODUCT_VERSION "2.0"
+!define PRODUCT_VERSION "3.0"
 !define PRODUCT_PUBLISHER "K4pselll"
 !define PRODUCT_WEB_SITE "https://github.com/K4pselll/VulkanVoxel"
 

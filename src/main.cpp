@@ -45,6 +45,22 @@ enum BlockType : uint8_t {
     BLOCK_BRICK,
     BLOCK_DOOR,
     BLOCK_GLASS,
+    BLOCK_COBBLESTONE,
+    BLOCK_PLANKS,
+    BLOCK_STONE_BRICKS,
+    BLOCK_SNOW,
+    BLOCK_ICE,
+    BLOCK_NETHERRACK,
+    BLOCK_OBSIDIAN,
+    BLOCK_GOLD,
+    BLOCK_IRON,
+    BLOCK_DIAMOND,
+    BLOCK_LAPIS,
+    BLOCK_EMERALD,
+    BLOCK_REDSTONE,
+    BLOCK_SMOOTH_STONE,
+    BLOCK_MOSSY_COBBLESTONE,
+    BLOCK_BEDROCK,
     BLOCK_COUNT
 };
 
@@ -66,6 +82,22 @@ BlockColor getBlockColor(BlockType type) {
         case BLOCK_BRICK:  return {0.70f, 0.25f, 0.20f};
         case BLOCK_DOOR:   return {0.40f, 0.22f, 0.12f};
         case BLOCK_GLASS:  return {0.60f, 0.85f, 1.00f, 0.45f};
+        case BLOCK_COBBLESTONE: return {0.45f, 0.45f, 0.45f};
+        case BLOCK_PLANKS: return {0.65f, 0.50f, 0.30f};
+        case BLOCK_STONE_BRICKS: return {0.55f, 0.55f, 0.55f};
+        case BLOCK_SNOW:   return {0.95f, 0.95f, 0.98f};
+        case BLOCK_ICE:    return {0.70f, 0.85f, 1.00f, 0.60f};
+        case BLOCK_NETHERRACK: return {0.50f, 0.15f, 0.15f};
+        case BLOCK_OBSIDIAN: return {0.10f, 0.08f, 0.18f};
+        case BLOCK_GOLD:   return {1.00f, 0.85f, 0.10f};
+        case BLOCK_IRON:   return {0.85f, 0.85f, 0.88f};
+        case BLOCK_DIAMOND: return {0.20f, 0.80f, 0.80f};
+        case BLOCK_LAPIS:  return {0.15f, 0.30f, 0.70f};
+        case BLOCK_EMERALD: return {0.20f, 0.75f, 0.30f};
+        case BLOCK_REDSTONE: return {0.75f, 0.10f, 0.10f};
+        case BLOCK_SMOOTH_STONE: return {0.60f, 0.60f, 0.62f};
+        case BLOCK_MOSSY_COBBLESTONE: return {0.40f, 0.50f, 0.35f};
+        case BLOCK_BEDROCK: return {0.20f, 0.20f, 0.20f};
         default:           return {0.80f, 0.20f, 0.80f};
     }
 }
@@ -81,6 +113,22 @@ const char* getBlockName(BlockType type) {
         case BLOCK_BRICK:  return "Brick";
         case BLOCK_DOOR:   return "Door";
         case BLOCK_GLASS:  return "Glass";
+        case BLOCK_COBBLESTONE: return "Cobblestone";
+        case BLOCK_PLANKS: return "Planks";
+        case BLOCK_STONE_BRICKS: return "Stone Bricks";
+        case BLOCK_SNOW:   return "Snow";
+        case BLOCK_ICE:    return "Ice";
+        case BLOCK_NETHERRACK: return "Netherrack";
+        case BLOCK_OBSIDIAN: return "Obsidian";
+        case BLOCK_GOLD:   return "Gold Block";
+        case BLOCK_IRON:   return "Iron Block";
+        case BLOCK_DIAMOND: return "Diamond Block";
+        case BLOCK_LAPIS:  return "Lapis Block";
+        case BLOCK_EMERALD: return "Emerald Block";
+        case BLOCK_REDSTONE: return "Redstone Block";
+        case BLOCK_SMOOTH_STONE: return "Smooth Stone";
+        case BLOCK_MOSSY_COBBLESTONE: return "Mossy Cobblestone";
+        case BLOCK_BEDROCK: return "Bedrock";
         default:           return "Unknown";
     }
 }
@@ -497,6 +545,9 @@ private:
     int menuLoadConfirm = -1;
     BlockType selectedBlock = BLOCK_GRASS;
     BuildMode buildMode = BUILD_BLOCK;
+    bool inventoryOpen = false;
+    int invCursor = 0;
+    float invMoveTimer = 0.0f;
     bool prevCrouching = false;
     bool firstMouse = true;
     double lastMouseX = 640.0, lastMouseY = 360.0;
@@ -611,6 +662,7 @@ private:
     static void mouseButtonCallback(GLFWwindow* w, int button, int action, int) {
         if (action != GLFW_PRESS) return;
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
+        if (app->inventoryOpen || app->gameState != PLAYING) return;
         if (button == GLFW_MOUSE_BUTTON_LEFT) app->breakBlock();
         if (button == GLFW_MOUSE_BUTTON_RIGHT) app->placeBlock();
     }
@@ -618,6 +670,15 @@ private:
     static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
         if (action != GLFW_PRESS) return;
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
+        if (key == GLFW_KEY_E) {
+            if (app->gameState == PLAYING) {
+                app->inventoryOpen = !app->inventoryOpen;
+                glfwSetInputMode(app->window, GLFW_CURSOR,
+                    app->inventoryOpen ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+                if (!app->inventoryOpen) app->firstMouse = true;
+            }
+            return;
+        }
         if (key == GLFW_KEY_ESCAPE) {
             if (app->gameState == MAIN_MENU) glfwSetWindowShouldClose(w, true);
             else {
@@ -1651,12 +1712,6 @@ private:
         std::vector<Vertex2D> verts;
         float fbw = static_cast<float>(swapChainExtent.width), fbh = static_cast<float>(swapChainExtent.height);
 
-        int slotSize = 44;
-        int gap = 6;
-        int totalW = (BLOCK_COUNT - 1) * slotSize + (BLOCK_COUNT - 2) * gap;
-        float startX = (fbw - totalW) / 2.0f;
-        float startY = fbh - 70.0f;
-
         auto quad = [&](float x, float y, float w, float h, float r, float g, float b) {
             uint32_t base = static_cast<uint32_t>(verts.size());
             verts.push_back({{x, y}, {r, g, b}});
@@ -1667,51 +1722,69 @@ private:
             verts.push_back({{x, y}, {r, g, b}});
         };
 
-        float barW = totalW + 20.0f;
-        float barH = slotSize + 14.0f;
-        float barX = startX - 10.0f;
-        float barY = startY - 7.0f;
-        quad(barX, barY, barW, barH, 0.15f, 0.15f, 0.15f);
-
-        for (int i = 1; i < BLOCK_COUNT; i++) {
-            float x = startX + (i - 1) * (slotSize + gap);
-            float y = startY;
-            BlockColor c = getBlockColor(static_cast<BlockType>(i));
-
-            if (static_cast<int>(selectedBlock) == i) {
-                float b = 3.0f;
-                quad(x - b, y - b, slotSize + b * 2, slotSize + b * 2, 1.0f, 1.0f, 1.0f);
+        if (inventoryOpen) {
+            int cols = 5, rows = 5;
+            float cell = 64.0f, gap = 6.0f;
+            float gridW = cols * cell + (cols - 1) * gap;
+            float gridH = rows * cell + (rows - 1) * gap;
+            float startX = (fbw - gridW) / 2.0f;
+            float startY = (fbh - gridH) / 2.0f;
+            float pp = 20.0f;
+            quad(startX - pp, startY - pp - 30, gridW + pp * 2, gridH + pp * 2 + 30, 0.10f, 0.10f, 0.12f);
+            std::string title = "INVENTORY  (Arrow Keys = Move, Enter = Select, E = Close)";
+            float tw = title.size() * 6;
+            drawText(verts, (fbw - tw) / 2, startY - pp - 24, title, 0.70f, 0.70f, 0.80f, 1);
+            BlockType ct = static_cast<BlockType>(invCursor + 1);
+            std::string sn = getBlockName(ct);
+            float sw = sn.size() * 6 * 2;
+            drawText(verts, (fbw - sw) / 2, startY + gridH + 10, sn, 0.90f, 0.90f, 1.00f, 2);
+            int totalCells = cols * rows;
+            for (int i = 0; i < totalCells; i++) {
+                int bt = i + 1;
+                if (bt >= BLOCK_COUNT) continue;
+                int col = i % cols, row = i / cols;
+                float x = startX + col * (cell + gap);
+                float y = startY + row * (cell + gap);
+                BlockColor c = getBlockColor(static_cast<BlockType>(bt));
+                if (i == invCursor) {
+                    float b = 3.0f;
+                    quad(x - b, y - b, cell + b * 2, cell + b * 2, 1.0f, 1.0f, 1.0f);
+                } else {
+                    float b = 1.0f;
+                    quad(x - b, y - b, cell + b * 2, cell + b * 2, 0.20f, 0.20f, 0.22f);
+                }
+                float pd = 2.0f;
+                quad(x + pd, y + pd, cell - pd * 2, cell - pd * 2, c.r, c.g, c.b);
             }
-
-            float pad = 3.0f;
-            float innerW = slotSize - pad * 2;
-            float innerH = slotSize - pad * 2;
-            float ix = x + pad;
-            float iy = y + pad;
-
-            if (i == static_cast<int>(BLOCK_DOOR)) {
-                float dw = innerW * 0.3f;
-                quad(ix + (innerW - dw) / 2, iy, dw, innerH, c.r, c.g, c.b);
+        } else {
+            float slotSize = 44.0f;
+            float slotX = (fbw - slotSize) / 2.0f;
+            float slotY = fbh - 70.0f;
+            float b = 3.0f;
+            quad(slotX - b, slotY - b, slotSize + b * 2, slotSize + b * 2, 1.0f, 1.0f, 1.0f);
+            BlockColor c = getBlockColor(selectedBlock);
+            float pd = 3.0f;
+            float ix = slotX + pd, iy = slotY + pd;
+            float iw = slotSize - pd * 2, ih = slotSize - pd * 2;
+            if (selectedBlock == BLOCK_DOOR) {
+                float dw = iw * 0.3f;
+                quad(ix + (iw - dw) / 2, iy, dw, ih, c.r, c.g, c.b);
             } else if (buildMode == BUILD_SLAB) {
-                quad(ix, iy + innerH * 0.5f, innerW, innerH * 0.5f, c.r, c.g, c.b);
+                quad(ix, iy + ih * 0.5f, iw, ih * 0.5f, c.r, c.g, c.b);
             } else if (buildMode == BUILD_STAIR) {
-                quad(ix, iy + innerH * 0.5f, innerW, innerH * 0.5f, c.r, c.g, c.b);
-                quad(ix, iy, innerW * 0.5f, innerH * 0.5f, c.r, c.g, c.b);
+                quad(ix, iy + ih * 0.5f, iw, ih * 0.5f, c.r, c.g, c.b);
+                quad(ix, iy, iw * 0.5f, ih * 0.5f, c.r, c.g, c.b);
             } else {
-                quad(ix, iy, innerW, innerH, c.r, c.g, c.b);
+                quad(ix, iy, iw, ih, c.r, c.g, c.b);
             }
+            const char* modeNames[] = {"Block", "Slab", "Stair"};
+            std::string info = std::string(getBlockName(selectedBlock));
+            if (selectedBlock != BLOCK_DOOR) info += std::string(" [") + modeNames[buildMode] + "]";
+            float infoW = info.size() * 6 * 2;
+            drawText(verts, (fbw - infoW) / 2, slotY - 20, info, 0.90f, 0.90f, 0.95f, 2);
+            float cx = fbw / 2.0f, cy = fbh / 2.0f, cr = 2.0f;
+            quad(cx - cr, cy - cr, cr * 2, cr * 2, 1.0f, 1.0f, 1.0f);
         }
-
-        const char* modeNames[] = {"Block", "Slab", "Stair"};
-        std::string info = std::string(getBlockName(selectedBlock));
-        if (selectedBlock != BLOCK_DOOR) info += std::string(" [") + modeNames[buildMode] + "]";
-        float infoW = info.size() * 6 * 2;
-        drawText(verts, (fbw - infoW) / 2, startY - 20, info, 0.90f, 0.90f, 0.95f, 2);
-
-        float cx = fbw / 2.0f;
-        float cy = fbh / 2.0f;
-        float cr = 2.0f;
-        quad(cx - cr, cy - cr, cr * 2, cr * 2, 1.0f, 1.0f, 1.0f);
 
         hudVertexCount = static_cast<uint32_t>(verts.size());
         if (hudVertexCount == 0) return;
@@ -2425,6 +2498,32 @@ private:
     }
 
     void processInput() {
+        if (inventoryOpen) {
+            invMoveTimer -= deltaTime;
+            if (invMoveTimer <= 0.0f) {
+                int dx = 0, dy = 0;
+                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) dx = 1;
+                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) dx = -1;
+                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) dy = 1;
+                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) dy = -1;
+                if (dx != 0 || dy != 0) {
+                    int col = invCursor % 5;
+                    int row = invCursor / 5;
+                    col = std::clamp(col + dx, 0, 4);
+                    row = std::clamp(row + dy, 0, 4);
+                    invCursor = row * 5 + col;
+                    invMoveTimer = 0.15f;
+                }
+            }
+            if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
+                selectedBlock = static_cast<BlockType>(invCursor + 1);
+                inventoryOpen = false;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                firstMouse = true;
+            }
+            return;
+        }
+
         if (camera.position.y < -10.0f) {
             camera.position = {WORLD_SIZE / 2.0f, 7.0f, WORLD_SIZE / 2.0f + 15.0f};
             camera.velocityY = 0;
