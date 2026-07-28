@@ -652,7 +652,12 @@ private:
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
         app->mouseX = xpos;
         app->mouseY = ypos;
-        if (app->inventoryOpen || app->firstMouse) {
+        if (app->gameState != PLAYING || app->inventoryOpen) {
+            app->lastMouseX = xpos;
+            app->lastMouseY = ypos;
+            return;
+        }
+        if (app->firstMouse) {
             app->lastMouseX = xpos;
             app->lastMouseY = ypos;
             app->firstMouse = false;
@@ -685,6 +690,10 @@ private:
                 app->draggedBlock = -1;
                 app->dragging = false;
             }
+            return;
+        }
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && app->gameState == MAIN_MENU) {
+            app->processMenuClick();
             return;
         }
         if (action != GLFW_PRESS || app->gameState != PLAYING) return;
@@ -2357,6 +2366,94 @@ private:
         if (menuSelection >= maxSel) menuSelection = maxSel - 1;
     }
 
+    void processMenuClick() {
+        float w = static_cast<float>(swapChainExtent.width);
+        float h = static_cast<float>(swapChainExtent.height);
+        float mx = static_cast<float>(mouseX);
+        float my = static_cast<float>(mouseY);
+
+        float sy = 120, sh = 44, sw = w * 0.6f, sx = (w - sw) / 2;
+
+        if (menuConfirmDelete) {
+            float dw = w * 0.32f, dh = h * 0.16f;
+            float dx = (w - dw) / 2, dy = (h - dh) / 2;
+            if (mx >= dx && mx < dx + dw / 2 && my >= dy && my < dy + dh) {
+                int delIdx = menuSelection < (int)saves.size() ? menuSelection : (int)saves.size() - 1;
+                if (delIdx >= 0 && delIdx < (int)saves.size()) {
+                    deleteSave(saves[delIdx].name);
+                    saves = listSaves();
+                    if (menuSelection >= (int)saves.size()) menuSelection = (int)saves.size() - 1;
+                }
+                menuConfirmDelete = false;
+            } else if (mx >= dx + dw / 2 && mx < dx + dw && my >= dy && my < dy + dh) {
+                menuConfirmDelete = false;
+            }
+            return;
+        }
+
+        if (menuRenameMode || menuNewInput) {
+            menuRenameMode = false;
+            menuNewInput = false;
+            return;
+        }
+
+        // Save entries
+        for (int i = 0; i < (int)saves.size(); i++) {
+            float ey = sy + i * (sh + 6);
+            if (mx >= sx && mx < sx + sw && my >= ey && my < ey + sh) {
+                menuSelection = i;
+                if (menuLoadConfirm == i) {
+                    if (loadWorld(world, camera, saves[i].name)) {
+                        currentSaveName = saves[i].name;
+                        gameState = PLAYING;
+                        meshDirty = true;
+                        menuLoadConfirm = -1;
+                        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                        std::cout << "Loaded save: " << saves[i].name << "\n";
+                    }
+                } else {
+                    menuLoadConfirm = i;
+                }
+                return;
+            }
+        }
+
+        // Buttons
+        float by = sy + saves.size() * (sh + 6) + 20;
+        for (int i = 0; i < 3; i++) {
+            float bx = sx + i * ((sw / 3) + 8);
+            float bw = sw / 3;
+            if (mx >= bx && mx < bx + bw && my >= by && my < by + sh) {
+                menuSelection = (int)saves.size() + i;
+                if (i == 0) {
+                    world.generate();
+                    camera = Camera();
+                    std::string name = "save_" + std::to_string(saves.size() + 1);
+                    currentSaveName = name;
+                    saveWorld(world, camera, name);
+                    saves = listSaves();
+                    gameState = PLAYING;
+                    meshDirty = true;
+                    menuLoadConfirm = -1;
+                    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                    std::cout << "New save: " << name << "\n";
+                } else if (i == 1) {
+                    if (!saves.empty()) menuConfirmDelete = true;
+                } else if (i == 2) {
+                    if (!saves.empty()) {
+                        int renameIdx = (int)saves.size() - 1;
+                        std::string oldName = saves[renameIdx].name;
+                        std::string newName = oldName + "_renamed";
+                        renameSave(oldName, newName);
+                        saves = listSaves();
+                        std::cout << "Renamed " << oldName << " -> " << newName << "\n";
+                    }
+                }
+                return;
+            }
+        }
+    }
+
     void drawMenuHud() {
         std::vector<Vertex2D> verts;
         auto quad = [&](float x, float y, float w, float h, float r, float g, float b) {
@@ -2431,7 +2528,7 @@ private:
         }
 
         // Instructions
-        std::string instr = "W/S: Navigate  Enter: Select  N: New Save  Delete: Delete  Esc: Quit";
+        std::string instr = "Click to Select  Enter: Load  N: New Save  Delete: Delete  Esc: Quit";
         float instrW = instr.size() * 6;
         drawText(verts, (w - instrW) / 2, h - 40, instr, 0.50f, 0.55f, 0.65f, 1);
 
