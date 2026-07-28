@@ -543,11 +543,14 @@ private:
     bool menuRenameMode = false;
     std::string currentSaveName;
     int menuLoadConfirm = -1;
-    BlockType selectedBlock = BLOCK_GRASS;
     BuildMode buildMode = BUILD_BLOCK;
+    BlockType hotbar[9] = {BLOCK_GRASS, BLOCK_DIRT, BLOCK_STONE, BLOCK_SAND, BLOCK_WOOD, BLOCK_WATER, BLOCK_BRICK, BLOCK_DOOR, BLOCK_GLASS};
+    int hotbarSelection = 0;
+    BlockType selectedBlock() const { return hotbar[hotbarSelection]; }
     bool inventoryOpen = false;
-    int invCursor = 0;
-    float invMoveTimer = 0.0f;
+    int draggedBlock = -1;
+    bool dragging = false;
+    double mouseX = 0, mouseY = 0;
     bool prevCrouching = false;
     bool firstMouse = true;
     double lastMouseX = 640.0, lastMouseY = 360.0;
@@ -647,10 +650,13 @@ private:
 
     static void mouseCallback(GLFWwindow* w, double xpos, double ypos) {
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
-        if (app->firstMouse) {
+        app->mouseX = xpos;
+        app->mouseY = ypos;
+        if (app->inventoryOpen || app->firstMouse) {
             app->lastMouseX = xpos;
             app->lastMouseY = ypos;
             app->firstMouse = false;
+            return;
         }
         float xoff = static_cast<float>(xpos - app->lastMouseX);
         float yoff = static_cast<float>(app->lastMouseY - ypos);
@@ -660,11 +666,61 @@ private:
     }
 
     static void mouseButtonCallback(GLFWwindow* w, int button, int action, int) {
-        if (action != GLFW_PRESS) return;
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
-        if (app->inventoryOpen || app->gameState != PLAYING) return;
+        if (button == GLFW_MOUSE_BUTTON_LEFT && app->inventoryOpen) {
+            float fbw = static_cast<float>(app->swapChainExtent.width);
+            float fbh = static_cast<float>(app->swapChainExtent.height);
+            if (action == GLFW_PRESS && app->draggedBlock < 0) {
+                int hit = app->hitInventoryCell(fbw, fbh, static_cast<float>(app->mouseX), static_cast<float>(app->mouseY));
+                if (hit >= 0) {
+                    app->draggedBlock = hit + 1;
+                    app->dragging = true;
+                }
+            } else if (action == GLFW_RELEASE && app->dragging) {
+                int slot = app->hitHotbarSlot(fbw, fbh, static_cast<float>(app->mouseX), static_cast<float>(app->mouseY));
+                if (slot >= 0)
+                    app->hotbar[slot] = static_cast<BlockType>(app->draggedBlock);
+                else
+                    app->hotbar[app->hotbarSelection] = static_cast<BlockType>(app->draggedBlock);
+                app->draggedBlock = -1;
+                app->dragging = false;
+            }
+            return;
+        }
+        if (action != GLFW_PRESS || app->gameState != PLAYING) return;
         if (button == GLFW_MOUSE_BUTTON_LEFT) app->breakBlock();
         if (button == GLFW_MOUSE_BUTTON_RIGHT) app->placeBlock();
+    }
+
+    int hitInventoryCell(float fbw, float fbh, float mx, float my) {
+        static constexpr int cols = 5, rows = 5;
+        float cell = 64.0f, gap = 6.0f;
+        float gridW = cols * cell + (cols - 1) * gap;
+        float gridH = rows * cell + (rows - 1) * gap;
+        float sx = (fbw - gridW) / 2.0f;
+        float sy = (fbh - gridH) / 2.0f;
+        for (int i = 0; i < cols * rows; i++) {
+            if (i + 1 >= BLOCK_COUNT) continue;
+            int col = i % cols, row = i / cols;
+            float x = sx + col * (cell + gap);
+            float y = sy + row * (cell + gap);
+            if (mx >= x && mx < x + cell && my >= y && my < y + cell)
+                return i;
+        }
+        return -1;
+    }
+
+    int hitHotbarSlot(float fbw, float fbh, float mx, float my) {
+        float slotSize = 44.0f, gap = 6.0f;
+        float totalW = 9 * slotSize + 8 * gap;
+        float sx = (fbw - totalW) / 2.0f;
+        float sy = fbh - 70.0f;
+        for (int i = 0; i < 9; i++) {
+            float x = sx + i * (slotSize + gap);
+            if (mx >= x && mx < x + slotSize && my >= sy && my < sy + slotSize)
+                return i;
+        }
+        return -1;
     }
 
     static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
@@ -690,19 +746,15 @@ private:
             return;
         }
         if (app->gameState != PLAYING) return;
+        const char* modeNames[] = {"Block", "Slab", "Stair"};
         if (key >= GLFW_KEY_1 && key <= GLFW_KEY_9) {
-            int idx = key - GLFW_KEY_1 + 1;
-            if (idx < BLOCK_COUNT) {
-                app->selectedBlock = static_cast<BlockType>(idx);
-                const char* modeNames[] = {"Block", "Slab", "Stair"};
-                std::cout << "Selected: " << getBlockName(app->selectedBlock);
-                if (app->selectedBlock != BLOCK_DOOR) std::cout << " [" << modeNames[app->buildMode] << "]";
-                std::cout << "\n";
-            }
+            app->hotbarSelection = key - GLFW_KEY_1;
+            std::cout << "Slot " << (app->hotbarSelection + 1) << ": " << getBlockName(app->hotbar[app->hotbarSelection]);
+            if (app->hotbar[app->hotbarSelection] != BLOCK_DOOR) std::cout << " [" << modeNames[app->buildMode] << "]";
+            std::cout << "\n";
         }
         if (key == GLFW_KEY_C) {
             app->buildMode = static_cast<BuildMode>((app->buildMode + 1) % 3);
-            const char* modeNames[] = {"Block", "Slab", "Stair"};
             std::cout << "Build mode: " << modeNames[app->buildMode] << "\n";
         }
     }
@@ -1722,66 +1774,100 @@ private:
             verts.push_back({{x, y}, {r, g, b}});
         };
 
+        float slotSize = 44.0f, gap = 6.0f;
+        float hbTotal = 9 * slotSize + 8 * gap;
+        float hbX = (fbw - hbTotal) / 2.0f;
+        float hbY = fbh - 70.0f;
+
         if (inventoryOpen) {
             int cols = 5, rows = 5;
-            float cell = 64.0f, gap = 6.0f;
-            float gridW = cols * cell + (cols - 1) * gap;
-            float gridH = rows * cell + (rows - 1) * gap;
-            float startX = (fbw - gridW) / 2.0f;
-            float startY = (fbh - gridH) / 2.0f;
+            float cell = 64.0f, cgap = 6.0f;
+            float gridW = cols * cell + (cols - 1) * cgap;
+            float gridH = rows * cell + (rows - 1) * cgap;
+            float gx = (fbw - gridW) / 2.0f;
+            float gy = (fbh - gridH) / 2.0f;
             float pp = 20.0f;
-            quad(startX - pp, startY - pp - 30, gridW + pp * 2, gridH + pp * 2 + 30, 0.10f, 0.10f, 0.12f);
-            std::string title = "INVENTORY  (Arrow Keys = Move, Enter = Select, E = Close)";
+            quad(gx - pp, gy - pp - 30, gridW + pp * 2, gridH + pp * 2 + 30, 0.10f, 0.10f, 0.12f);
+
+            // Title
+            std::string title = "INVENTORY  (Click = Pick, Drag to Hotbar, E = Close)";
             float tw = title.size() * 6;
-            drawText(verts, (fbw - tw) / 2, startY - pp - 24, title, 0.70f, 0.70f, 0.80f, 1);
-            BlockType ct = static_cast<BlockType>(invCursor + 1);
-            std::string sn = getBlockName(ct);
-            float sw = sn.size() * 6 * 2;
-            drawText(verts, (fbw - sw) / 2, startY + gridH + 10, sn, 0.90f, 0.90f, 1.00f, 2);
-            int totalCells = cols * rows;
-            for (int i = 0; i < totalCells; i++) {
+            drawText(verts, (fbw - tw) / 2, gy - pp - 24, title, 0.70f, 0.70f, 0.80f, 1);
+
+            // Grid cells
+            float mx = static_cast<float>(mouseX), my = static_cast<float>(mouseY);
+            for (int i = 0; i < cols * rows; i++) {
                 int bt = i + 1;
                 if (bt >= BLOCK_COUNT) continue;
                 int col = i % cols, row = i / cols;
-                float x = startX + col * (cell + gap);
-                float y = startY + row * (cell + gap);
+                float x = gx + col * (cell + cgap);
+                float y = gy + row * (cell + cgap);
                 BlockColor c = getBlockColor(static_cast<BlockType>(bt));
-                if (i == invCursor) {
-                    float b = 3.0f;
-                    quad(x - b, y - b, cell + b * 2, cell + b * 2, 1.0f, 1.0f, 1.0f);
-                } else {
-                    float b = 1.0f;
-                    quad(x - b, y - b, cell + b * 2, cell + b * 2, 0.20f, 0.20f, 0.22f);
-                }
+
+                bool hovered = (mx >= x && mx < x + cell && my >= y && my < y + cell);
+                bool isDragged = (draggedBlock == bt);
+                float bw = hovered ? 3.0f : 1.0f;
+                float br = hovered ? 1.0f : (isDragged ? 0.50f : 0.20f);
+                float bg = hovered ? 1.0f : (isDragged ? 0.50f : 0.20f);
+                float bb = hovered ? 1.0f : (isDragged ? 0.50f : 0.22f);
+                quad(x - bw, y - bw, cell + bw * 2, cell + bw * 2, br, bg, bb);
                 float pd = 2.0f;
                 quad(x + pd, y + pd, cell - pd * 2, cell - pd * 2, c.r, c.g, c.b);
+
+                if (isDragged) {
+                    quad(x + pd, y + pd, cell - pd * 2, cell - pd * 2, 0.30f, 0.30f, 0.30f);
+                }
             }
-        } else {
-            float slotSize = 44.0f;
-            float slotX = (fbw - slotSize) / 2.0f;
-            float slotY = fbh - 70.0f;
-            float b = 3.0f;
-            quad(slotX - b, slotY - b, slotSize + b * 2, slotSize + b * 2, 1.0f, 1.0f, 1.0f);
-            BlockColor c = getBlockColor(selectedBlock);
+
+            // Hotbar below inventory
+            float panelBot = gy + gridH + pp;
+            float hbBgPad = 6.0f;
+            quad(hbX - hbBgPad, hbY - hbBgPad, hbTotal + hbBgPad * 2, slotSize + hbBgPad * 2, 0.10f, 0.10f, 0.12f);
+        }
+
+        // Hotbar (drawn in both states)
+        float hbBgPad = 6.0f;
+        if (!inventoryOpen) {
+            quad(hbX - hbBgPad, hbY - hbBgPad, hbTotal + hbBgPad * 2, slotSize + hbBgPad * 2, 0.15f, 0.15f, 0.15f);
+        }
+        for (int i = 0; i < 9; i++) {
+            float x = hbX + i * (slotSize + gap);
+            BlockColor c = getBlockColor(hotbar[i]);
+            if (i == hotbarSelection) {
+                float b = 3.0f;
+                quad(x - b, hbY - b, slotSize + b * 2, slotSize + b * 2, 1.0f, 1.0f, 1.0f);
+            } else {
+                float b = 1.0f;
+                quad(x - b, hbY - b, slotSize + b * 2, slotSize + b * 2, 0.25f, 0.25f, 0.27f);
+            }
             float pd = 3.0f;
-            float ix = slotX + pd, iy = slotY + pd;
+            float ix = x + pd, iy = hbY + pd;
             float iw = slotSize - pd * 2, ih = slotSize - pd * 2;
-            if (selectedBlock == BLOCK_DOOR) {
+            if (hotbar[i] == BLOCK_DOOR) {
                 float dw = iw * 0.3f;
                 quad(ix + (iw - dw) / 2, iy, dw, ih, c.r, c.g, c.b);
-            } else if (buildMode == BUILD_SLAB) {
-                quad(ix, iy + ih * 0.5f, iw, ih * 0.5f, c.r, c.g, c.b);
-            } else if (buildMode == BUILD_STAIR) {
-                quad(ix, iy + ih * 0.5f, iw, ih * 0.5f, c.r, c.g, c.b);
-                quad(ix, iy, iw * 0.5f, ih * 0.5f, c.r, c.g, c.b);
             } else {
                 quad(ix, iy, iw, ih, c.r, c.g, c.b);
             }
+        }
+
+        if (inventoryOpen) {
+            // Dragged block at cursor
+            if (draggedBlock > 0) {
+                float s = 32.0f;
+                float mx = static_cast<float>(mouseX), my = static_cast<float>(mouseY);
+                BlockColor dc = getBlockColor(static_cast<BlockType>(draggedBlock));
+                quad(mx - s / 2, my - s / 2, s, s, 0.20f, 0.20f, 0.22f);
+                quad(mx - s / 2 + 2, my - s / 2 + 2, s - 4, s - 4, dc.r, dc.g, dc.b);
+            }
+        } else {
+            // Block name + mode below hotbar
             const char* modeNames[] = {"Block", "Slab", "Stair"};
-            std::string info = std::string(getBlockName(selectedBlock));
-            if (selectedBlock != BLOCK_DOOR) info += std::string(" [") + modeNames[buildMode] + "]";
+            std::string info = std::string(getBlockName(selectedBlock()));
+            if (selectedBlock() != BLOCK_DOOR) info += std::string(" [") + modeNames[buildMode] + "]";
             float infoW = info.size() * 6 * 2;
-            drawText(verts, (fbw - infoW) / 2, slotY - 20, info, 0.90f, 0.90f, 0.95f, 2);
+            drawText(verts, (fbw - infoW) / 2, hbY - 20, info, 0.90f, 0.90f, 0.95f, 2);
+            // Crosshair
             float cx = fbw / 2.0f, cy = fbh / 2.0f, cr = 2.0f;
             quad(cx - cr, cy - cr, cr * 2, cr * 2, 1.0f, 1.0f, 1.0f);
         }
@@ -1949,7 +2035,7 @@ private:
                     place.z >= (int)floor(camera.position.z - r) && place.z <= (int)floor(camera.position.z + r) &&
                     place.y >= (int)floor(feetY) && place.y <= (int)floor(headY);
                 if (!insidePlayer) {
-                    if (selectedBlock == BLOCK_DOOR) {
+                    if (selectedBlock() == BLOCK_DOOR) {
                         world.set(place.x, place.y, place.z, BLOCK_DOOR);
                         world.setMeta(place.x, place.y, place.z, getDoorFacingMeta());
                         world.setDoorOpen(place.x, place.y, place.z, false);
@@ -1959,7 +2045,7 @@ private:
                             world.setDoorOpen(place.x, place.y + 1, place.z, false);
                         }
                     } else {
-                        world.set(place.x, place.y, place.z, selectedBlock);
+                        world.set(place.x, place.y, place.z, selectedBlock());
                         uint8_t m = 0;
                         if (buildMode == BUILD_SLAB) m = 1;
                         else if (buildMode == BUILD_STAIR) m = getStairFacingMeta();
@@ -2499,24 +2585,7 @@ private:
 
     void processInput() {
         if (inventoryOpen) {
-            invMoveTimer -= deltaTime;
-            if (invMoveTimer <= 0.0f) {
-                int dx = 0, dy = 0;
-                if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) dx = 1;
-                if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) dx = -1;
-                if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) dy = 1;
-                if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) dy = -1;
-                if (dx != 0 || dy != 0) {
-                    int col = invCursor % 5;
-                    int row = invCursor / 5;
-                    col = std::clamp(col + dx, 0, 4);
-                    row = std::clamp(row + dy, 0, 4);
-                    invCursor = row * 5 + col;
-                    invMoveTimer = 0.15f;
-                }
-            }
             if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS) {
-                selectedBlock = static_cast<BlockType>(invCursor + 1);
                 inventoryOpen = false;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                 firstMouse = true;
