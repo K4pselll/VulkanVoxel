@@ -32,29 +32,47 @@ target_include_directories(voxel PRIVATE ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(voxel glfw Vulkan::Vulkan glm::glm)
 
 # Shader compilation
-find_program(GLSLC glslc HINTS "$ENV{VULKAN_SDK}/Bin")
+find_program(GLSLC glslc
+    HINTS
+        "$ENV{VULKAN_SDK}/Bin"
+        "$ENV{VULKAN_SDK}/bin"
+        "${VULKAN_SDK}/Bin"
+        "${VULKAN_SDK}/bin"
+)
+if(NOT GLSLC)
+    message(FATAL_ERROR "glslc not found! Install Vulkan SDK and ensure glslc is in PATH.")
+endif()
 
-set(SHADER_DIR ${CMAKE_SOURCE_DIR}/shaders)
+set(SHADER_SRC_DIR ${CMAKE_SOURCE_DIR}/shaders)
 set(SHADER_OUT_DIR ${CMAKE_BINARY_DIR}/shaders)
 file(MAKE_DIRECTORY ${SHADER_OUT_DIR})
 
 set(SHADERS
-    ${SHADER_DIR}/shader.vert
-    ${SHADER_DIR}/shader.frag
-    ${SHADER_DIR}/shader2d.vert
-    ${SHADER_DIR}/shader2d.frag
+    ${SHADER_SRC_DIR}/shader.vert
+    ${SHADER_SRC_DIR}/shader.frag
+    ${SHADER_SRC_DIR}/shader2d.vert
+    ${SHADER_SRC_DIR}/shader2d.frag
 )
 
 foreach(SHADER ${SHADERS})
     get_filename_component(SHADER_NAME ${SHADER} NAME)
+    set(SPV_OUT ${SHADER_OUT_DIR}/${SHADER_NAME}.spv)
     add_custom_command(
-        OUTPUT ${SHADER_OUT_DIR}/${SHADER_NAME}.spv
-        COMMAND ${GLSLC} ${SHADER} -o ${SHADER_OUT_DIR}/${SHADER_NAME}.spv
+        OUTPUT ${SPV_OUT}
+        COMMAND ${GLSLC} ${SHADER} -o ${SPV_OUT}
         DEPENDS ${SHADER}
         COMMENT "Compiling ${SHADER_NAME}"
     )
-    list(APPEND SPIRV_OUTPUTS ${SHADER_OUT_DIR}/${SHADER_NAME}.spv)
+    list(APPEND SPIRV_OUTPUTS ${SPV_OUT})
 endforeach()
 
 add_custom_target(shaders DEPENDS ${SPIRV_OUTPUTS})
 add_dependencies(voxel shaders)
+
+# Copy SPIR-V shaders next to the executable
+add_custom_command(TARGET voxel POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${SHADER_OUT_DIR}
+        $<TARGET_FILE_DIR:voxel>/shaders
+    COMMENT "Copying shaders to executable directory"
+)

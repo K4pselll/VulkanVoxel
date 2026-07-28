@@ -2534,8 +2534,10 @@ private:
     }
 };
 
-int main() {
+int main(int argc, char* argv[]) {
     try {
+        namespace fs = std::filesystem;
+        fs::current_path(fs::absolute(argv[0]).parent_path());
         VoxelEngine engine;
         engine.run();
     } catch (const std::exception& e) {
