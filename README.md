@@ -69,6 +69,17 @@ docker run --rm -it --device=/dev/dri:/dev/dri -e DISPLAY=$DISPLAY -v /tmp/.X11-
 
 > Note: Docker requires `--device` and X11 passthrough for GPU access. On Wayland, use `--security-opt seccomp=unconfined` and appropriate Wayland socket mounts.
 
+### Installer (Windows)
+
+After building with MSYS2, create a distributable installer:
+
+```
+pacman -S mingw-w64-ucrt-x86_64-nsis
+makensis installer.nsi
+```
+
+Output: `VulkanVoxel-2.0-Setup.exe` — a single-file installer that puts the game in Program Files, creates Start Menu + Desktop shortcuts, and supports uninstall via Windows Apps & Features.
+
 ## Dependencies
 
 - Vulkan SDK (1.3+) — provides headers, Vulkan loader, and `glslc` shader compiler
