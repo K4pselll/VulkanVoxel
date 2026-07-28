@@ -567,6 +567,7 @@ private:
     std::vector<VkDescriptorSet> hudDescriptorSets;
     VkBuffer hudVB = VK_NULL_HANDLE;
     VkDeviceMemory hudVM = VK_NULL_HANDLE;
+    VkDeviceSize hudBufferSize = 0;
     uint32_t hudVertexCount = 0;
 
     static const int MAX_FRAMES_IN_FLIGHT = 2;
@@ -1714,14 +1715,18 @@ private:
         hudVertexCount = static_cast<uint32_t>(verts.size());
         if (hudVertexCount == 0) return;
 
-        if (hudVB) {
-            vkDestroyBuffer(device, hudVB, nullptr);
-            vkFreeMemory(device, hudVM, nullptr);
-        }
         VkDeviceSize size = sizeof(Vertex2D) * verts.size();
-        createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     hudVB, hudVM);
+        if (size > hudBufferSize) {
+            vkDeviceWaitIdle(device);
+            if (hudVB) {
+                vkDestroyBuffer(device, hudVB, nullptr);
+                vkFreeMemory(device, hudVM, nullptr);
+            }
+            createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         hudVB, hudVM);
+            hudBufferSize = size;
+        }
         void* d;
         vkMapMemory(device, hudVM, 0, size, 0, &d);
         memcpy(d, verts.data(), size);
@@ -1913,8 +1918,9 @@ private:
         uint32_t imageIndex;
         VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX,
             imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-            recreateSwapChain();
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_DEVICE_LOST) {
+            if (result == VK_ERROR_DEVICE_LOST) recreateSwapChain();
+            else recreateSwapChain();
             return;
         }
 
@@ -1942,7 +1948,7 @@ private:
         si.signalSemaphoreCount = 1;
         si.pSignalSemaphores = signalSemaphores;
         if (vkQueueSubmit(graphicsQueue, 1, &si, inFlightFences[currentFrame]) != VK_SUCCESS)
-            throw std::runtime_error("Failed to submit draw command!");
+            throw std::runtime_error("Failed to submit draw command (device lost or driver error)!");
 
         VkPresentInfoKHR pi{};
         pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -2280,14 +2286,18 @@ private:
         hudVertexCount = static_cast<uint32_t>(verts.size());
         if (hudVertexCount == 0) return;
 
-        if (hudVB) {
-            vkDestroyBuffer(device, hudVB, nullptr);
-            vkFreeMemory(device, hudVM, nullptr);
-        }
         VkDeviceSize size = sizeof(Vertex2D) * verts.size();
-        createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     hudVB, hudVM);
+        if (size > hudBufferSize) {
+            vkDeviceWaitIdle(device);
+            if (hudVB) {
+                vkDestroyBuffer(device, hudVB, nullptr);
+                vkFreeMemory(device, hudVM, nullptr);
+            }
+            createBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         hudVB, hudVM);
+            hudBufferSize = size;
+        }
         void* d;
         vkMapMemory(device, hudVM, 0, size, 0, &d);
         memcpy(d, verts.data(), size);
