@@ -2,6 +2,12 @@
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -2542,6 +2548,11 @@ int main(int argc, char* argv[]) {
         engine.run();
     } catch (const std::exception& e) {
         std::cerr << "ERROR: " << e.what() << std::endl;
+        std::ofstream log("error.log");
+        if (log.is_open()) log << "FATAL: " << e.what() << std::endl;
+#ifdef _WIN32
+        MessageBoxA(NULL, e.what(), "VulkanVoxel Error", MB_OK | MB_ICONERROR);
+#endif
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
