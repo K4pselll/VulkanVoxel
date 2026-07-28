@@ -539,6 +539,7 @@ private:
     int menuMaxVisible = 8;
     bool menuConfirmDelete = false;
     std::string menuRenameInput;
+    std::string menuRenameOriginalName;
     bool menuNewInput = false;
     bool menuRenameMode = false;
     std::string currentSaveName;
@@ -640,7 +641,10 @@ private:
         glfwSetCursorPosCallback(window, mouseCallback);
         glfwSetMouseButtonCallback(window, mouseButtonCallback);
         glfwSetKeyCallback(window, keyCallback);
+        glfwSetCharCallback(window, charCallback);
         glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        if (gameState == MAIN_MENU)
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
 
     static void framebufferResizeCallback(GLFWwindow* w, int, int) {
@@ -733,7 +737,7 @@ private:
     }
 
     static void keyCallback(GLFWwindow* w, int key, int, int action, int) {
-        if (action != GLFW_PRESS) return;
+        if (action != GLFW_PRESS && action != GLFW_REPEAT) return;
         auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
         if (key == GLFW_KEY_E) {
             if (app->gameState == PLAYING) {
@@ -766,6 +770,16 @@ private:
             app->buildMode = static_cast<BuildMode>((app->buildMode + 1) % 3);
             std::cout << "Build mode: " << modeNames[app->buildMode] << "\n";
         }
+        if (key == GLFW_KEY_BACKSPACE) {
+            if (app->menuRenameMode && !app->menuRenameInput.empty())
+                app->menuRenameInput.pop_back();
+        }
+    }
+
+    static void charCallback(GLFWwindow* w, unsigned int codepoint) {
+        auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(w));
+        if (app->menuRenameMode && codepoint >= 32 && codepoint <= 126)
+            app->menuRenameInput += static_cast<char>(codepoint);
     }
 
     // ==================== VULKAN ====================
@@ -2269,9 +2283,14 @@ private:
                     menuSelection = (int)saves.size() - 1;
                     menuNewInput = false;
                     std::cout << "Created save: " << name << "\n";
+                } else {
+                    if (!menuRenameInput.empty() && menuRenameInput != menuRenameOriginalName) {
+                        renameSave(menuRenameOriginalName, menuRenameInput);
+                        saves = listSaves();
+                        std::cout << "Renamed " << menuRenameOriginalName << " -> " << menuRenameInput << "\n";
+                    }
+                    menuRenameMode = false;
                 }
-                menuRenameMode = false;
-                menuNewInput = false;
             }
             if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
                 menuRenameMode = false;
@@ -2329,12 +2348,13 @@ private:
                 if (!saves.empty()) menuConfirmDelete = true;
             } else if (menuSelection == (int)saves.size() + 2) {
                 if (!saves.empty()) {
-                    int renameIdx = (int)saves.size() - 1;
-                    std::string oldName = saves[renameIdx].name;
-                    std::string newName = oldName + "_renamed";
-                    renameSave(oldName, newName);
-                    saves = listSaves();
-                    std::cout << "Renamed " << oldName << " -> " << newName << "\n";
+                    int renameIdx = menuSelection < (int)saves.size() ? menuSelection : (int)saves.size() - 1;
+                    if (renameIdx >= 0 && renameIdx < (int)saves.size()) {
+                        menuRenameInput = saves[renameIdx].name;
+                        menuRenameOriginalName = saves[renameIdx].name;
+                        menuRenameMode = true;
+                        std::cout << "Renaming: " << menuRenameOriginalName << " (type new name, Enter to confirm)\n";
+                    }
                 }
             }
         }
@@ -2360,6 +2380,14 @@ private:
             return;
         }
         rN = n;
+
+        if (r && !rR && !saves.empty() && menuSelection < (int)saves.size()) {
+            menuRenameInput = saves[menuSelection].name;
+            menuRenameOriginalName = saves[menuSelection].name;
+            menuRenameMode = true;
+            std::cout << "Renaming: " << menuRenameOriginalName << " (type new name, Enter to confirm)\n";
+        }
+        rR = r;
 
         if (menuSelection < 0) menuSelection = 0;
         int maxSel = (int)saves.size() + 3;
@@ -2424,6 +2452,7 @@ private:
             float bx = sx + i * ((sw / 3) + 8);
             float bw = sw / 3;
             if (mx >= bx && mx < bx + bw && my >= by && my < by + sh) {
+                int lastSaveSel = menuSelection < (int)saves.size() ? menuSelection : (int)saves.size() - 1;
                 menuSelection = (int)saves.size() + i;
                 if (i == 0) {
                     world.generate();
@@ -2438,15 +2467,16 @@ private:
                     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
                     std::cout << "New save: " << name << "\n";
                 } else if (i == 1) {
-                    if (!saves.empty()) menuConfirmDelete = true;
+                    if (!saves.empty() && lastSaveSel >= 0) {
+                        menuSelection = lastSaveSel;
+                        menuConfirmDelete = true;
+                    }
                 } else if (i == 2) {
-                    if (!saves.empty()) {
-                        int renameIdx = (int)saves.size() - 1;
-                        std::string oldName = saves[renameIdx].name;
-                        std::string newName = oldName + "_renamed";
-                        renameSave(oldName, newName);
-                        saves = listSaves();
-                        std::cout << "Renamed " << oldName << " -> " << newName << "\n";
+                    if (!saves.empty() && lastSaveSel >= 0) {
+                        menuRenameInput = saves[lastSaveSel].name;
+                        menuRenameOriginalName = saves[lastSaveSel].name;
+                        menuRenameMode = true;
+                        std::cout << "Renaming: " << menuRenameOriginalName << " (type new name, Enter to confirm)\n";
                     }
                 }
                 return;
@@ -2528,9 +2558,28 @@ private:
         }
 
         // Instructions
-        std::string instr = "Click to Select  Enter: Load  N: New Save  Delete: Delete  Esc: Quit";
+        std::string instr = "Click to Select  Enter: Load  N: New Save  R: Rename  Delete: Delete  Esc: Quit";
         float instrW = instr.size() * 6;
         drawText(verts, (w - instrW) / 2, h - 40, instr, 0.50f, 0.55f, 0.65f, 1);
+
+        // Rename dialog
+        if (menuRenameMode) {
+            float dw = w * 0.40f, dh = h * 0.14f;
+            float dx = (w - dw) / 2, dy = (h - dh) / 2;
+            quad(dx, dy, dw, dh, 0.15f, 0.20f, 0.40f);
+            quad(dx + 2, dy + 2, dw - 4, dh - 4, 0.10f, 0.15f, 0.35f);
+            std::string title = "RENAME SAVE";
+            float tw = title.size() * 6 * 2;
+            drawText(verts, (w - tw) / 2, dy + 16, title, 0.80f, 0.85f, 1.0f, 2);
+            std::string display = menuRenameInput + (static_cast<int>(glfwGetTime() * 2) % 2 ? "_" : " ");
+            float iw = display.size() * 6 * 2;
+            float iy = dy + dh / 2 - 7;
+            quad(dx + 10, iy - 4, dw - 20, 22, 0.05f, 0.05f, 0.10f);
+            drawText(verts, (w - iw) / 2, iy, display, 0.90f, 0.90f, 1.0f, 2);
+            std::string hint = "Enter: Confirm  Esc: Cancel";
+            float hw = hint.size() * 6;
+            drawText(verts, (w - hw) / 2, dy + dh - 22, hint, 0.50f, 0.55f, 0.65f, 1);
+        }
 
         // Confirm dialog
         if (menuConfirmDelete) {
@@ -2541,7 +2590,7 @@ private:
             std::string confirmTxt = "DELETE SAVE?";
             float ctw = confirmTxt.size() * 6 * 2;
             drawText(verts, (w - ctw) / 2, dy + 20, confirmTxt, 1.0f, 0.8f, 0.8f, 2);
-            std::string ynTxt = "Y: Yes  N: No";
+            std::string ynTxt = "Click Left: Yes  Click Right: No  (Y/N on keyboard)";
             float ynw = ynTxt.size() * 6;
             drawText(verts, (w - ynw) / 2, dy + dh - 30, ynTxt, 0.8f, 0.8f, 0.9f, 1);
         }
