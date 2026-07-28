@@ -250,6 +250,7 @@ struct Camera {
     float velocityY = 0.0f;
     bool onGround = false;
     bool spaceWasPressed = false;
+    bool fWasPressed = false;
     static constexpr float gravity = -28.0f;
     static constexpr float jumpVelocity = 9.0f;
 
@@ -1867,8 +1868,14 @@ private:
             if (place.x >= 0 && place.x < WORLD_SIZE &&
                 place.y >= 0 && place.y < WORLD_HEIGHT &&
                 place.z >= 0 && place.z < WORLD_SIZE) {
-                glm::ivec3 pp(camera.position.x, camera.position.y - camera.eyeHeight, camera.position.z);
-                if (place != pp && place != pp + glm::ivec3(0, 1, 0)) {
+                float r = 0.25f;
+                float feetY = camera.position.y - camera.eyeHeight;
+                float headY = camera.position.y + (camera.crouching ? 0.0f : 0.2f);
+                bool insidePlayer =
+                    place.x >= (int)floor(camera.position.x - r) && place.x <= (int)floor(camera.position.x + r) &&
+                    place.z >= (int)floor(camera.position.z - r) && place.z <= (int)floor(camera.position.z + r) &&
+                    place.y >= (int)floor(feetY) && place.y <= (int)floor(headY);
+                if (!insidePlayer) {
                     if (selectedBlock == BLOCK_DOOR) {
                         world.set(place.x, place.y, place.z, BLOCK_DOOR);
                         world.setMeta(place.x, place.y, place.z, getDoorFacingMeta());
@@ -2450,27 +2457,17 @@ private:
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) moveDir -= rt;
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) moveDir += rt;
 
-        if (glm::length(moveDir) > 0.001f) {
-            moveDir = glm::normalize(moveDir) * v;
-
-            if (camera.flying) {
-                camera.position += moveDir;
-                if (isPlayerColliding(camera, world)) camera.position -= moveDir;
-            } else {
+        if (camera.flying) {
+            if (glm::length(moveDir) > 0.001f) {
+                moveDir = glm::normalize(moveDir) * v;
                 camera.position.x += moveDir.x;
                 if (isPlayerColliding(camera, world)) camera.position.x -= moveDir.x;
                 camera.position.z += moveDir.z;
                 if (isPlayerColliding(camera, world)) camera.position.z -= moveDir.z;
             }
-        }
 
-        if (camera.flying) {
             if (spaceDown) camera.position.y += camera.flySpeed * deltaTime;
             if (shiftDown) camera.position.y -= camera.flySpeed * deltaTime;
-            if (isPlayerColliding(camera, world)) {
-                if (shiftDown) camera.position.y += camera.flySpeed * deltaTime;
-                else camera.position.y -= camera.flySpeed * deltaTime;
-            }
 
             int bx = static_cast<int>(floor(camera.position.x));
             int bz = static_cast<int>(floor(camera.position.z));
@@ -2483,7 +2480,21 @@ private:
                     break;
                 }
             }
+
+            if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS && !camera.fWasPressed) {
+                camera.flying = false;
+                camera.velocityY = 0;
+            }
+            camera.fWasPressed = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
         } else {
+            if (glm::length(moveDir) > 0.001f) {
+                moveDir = glm::normalize(moveDir) * v;
+                camera.position.x += moveDir.x;
+                if (isPlayerColliding(camera, world)) camera.position.x -= moveDir.x;
+                camera.position.z += moveDir.z;
+                if (isPlayerColliding(camera, world)) camera.position.z -= moveDir.z;
+            }
+
             if (spaceDown && camera.onGround && !camera.spaceWasPressed) {
                 camera.velocityY = Camera::jumpVelocity;
                 camera.onGround = false;
