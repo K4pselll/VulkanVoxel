@@ -1,6 +1,6 @@
 #version 450
 
-layout(location = 0) in vec3 fragColor;
+layout(location = 0) in vec4 fragColor;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec3 fragPos;
 
@@ -22,11 +22,11 @@ void main() {
     float ambient = 0.35;
     float lighting = ambient + diff * 0.65;
 
-    vec3 result = fragColor * lighting;
+    vec3 result = fragColor.rgb * lighting;
 
     float fogDist = length(fragPos);
     float fog = clamp((fogDist - 40.0) / 60.0, 0.0, 0.7);
     result = mix(result, vec3(0.6, 0.75, 0.95), fog);
 
-    outColor = vec4(result, 1.0);
+    outColor = vec4(result, fragColor.a);
 }
